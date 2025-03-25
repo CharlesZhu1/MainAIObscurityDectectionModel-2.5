@@ -7,7 +7,7 @@ from openai import OpenAI
 
 # Initialize the OpenAI client
 client = OpenAI(
-    api_key="put your own"
+    api_key="Random one"
     # Replace with your actual API key
 )
 
@@ -134,7 +134,7 @@ def main():
             if obscurity is not None:
                 word_obscurities_generated.append((word, obscurity))
 
-        # Remove the 10 lowest outliers before calculating average obscurity for the generated essay
+        # Remove the 10 lowest outliers before calculating average obscurity
         filtered_word_obscurities_generated = remove_lowest_outliers(word_obscurities_generated, count=10)
 
         # Calculate the average obscurity score for the generated essay
@@ -151,10 +151,78 @@ def main():
     print(f"\nAverage Obscurity for the 3 generated essays (after removing outliers): {average_obscurity_generated_essays:.4f}")
 
     # Compare the two average obscurity scores
-    if abs(average_obscurity_input - average_obscurity_generated_essays) / average_obscurity_input <= 0.12:
+    if abs(average_obscurity_input - average_obscurity_generated_essays) / average_obscurity_input <= 0.14:
         print("\nResult: AI")
     else:
         print("\nResult: HUMAN")
+
+    # ----------------------------------------------------------------------------
+    # ADDED SECTION: Confidence score system using a normal distribution
+    # ----------------------------------------------------------------------------
+    # We define "difference" as how far off the essay's obscurity is from the AI-generated mean.
+    # We assume a normal distribution with mean=0 and std dev=4.
+    # Then compute the standard normal CDF to get a confidence measure in the range [0,1].
+    # A higher value here implies we are "less sure" it's AI (per your request).
+
+    difference = average_obscurity_input - average_obscurity_generated_essays
+    # Standard deviation = 4
+    z_score = difference / 4.0
+
+    # Standard Normal CDF using error function:
+    # CDF(z) = 0.5 * (1 + erf(z / sqrt(2)))
+    cdf_value = 0.5 * (1 + math.erf(z_score / math.sqrt(2)))
+
+    # Convert to percentage
+    confidence_percent = cdf_value * 100.0
+
+    print(f"\nConfidence Score (0-100): {confidence_percent:.2f}")
+    print("   (Higher = Less sure it’s AI, based on empirical rule with std dev = 4)")
+    # ----------------------------------------------------------------------------
+   # ----------------------------------------------------------------------------
+    # NEW SECTION: Heuristic-based AI detection (repetition and list detection)
+    # ----------------------------------------------------------------------------
+    print("\nRunning repetition and list-based analysis...")
+
+    style_prompt = (
+    "Analyze the human claimed text inputted. Does it show signs of repetitiveness or excessive listing "
+    "that are typical of AI-generated writing? Specifically, check for (1) repeated phrases or patterns, "
+    "(2) heavy use of enumeration or bullet-like structures, and (3) lack of natural flow. "
+    "Answer only with 'Likely AI', 'Likely Human', or 'Unclear'.\n\n"
+    f"Essay:\n{essay}"
+)
+
+
+    style_check = client.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": "You are a style analysis engine."},
+            {"role": "user", "content": style_prompt}
+        ]
+    )
+    style_judgment = style_check.choices[0].message.content.strip()
+
+    # Assign style-based confidence
+    if "Likely AI" in style_judgment:
+        style_confidence = 0  # Confident it's AI
+    elif "Likely Human" in style_judgment:
+        style_confidence = 100  # Confident it's human
+    else:
+        style_confidence = 50  # Unclear
+
+    print(f"Style-Based Report: {style_judgment}")
+    print(f"Style-Based Confidence Score (0-100): {style_confidence:.2f}")
+
+    # ----------------------------------------------------------------------------
+    # COMBINE FINAL CONFIDENCE: 75% obscurity-based, 25% style-based
+    # ----------------------------------------------------------------------------
+    final_confidence_score = (0.75 * confidence_percent) + (0.25 * style_confidence)
+    print(f"\n🔎 Final Combined Confidence Score (0-100): {final_confidence_score:.2f}")
+    if final_confidence_score < 50:
+        print("=> Final Verdict: Likely AI")
+    elif final_confidence_score > 70:
+        print("=> Final Verdict: Likely Human")
+    else:
+        print("=> Final Verdict: Unclear")
 
 if __name__ == "__main__":
     main()
